@@ -685,14 +685,16 @@ class SeparatedBitPlanEncoder(BaseTransformer):
 
         X = X.astype(np.float)
 
-        magnitude_p = self.magnitude[0]
-        magnitude_n = self.magnitude[1]
         dequantization_scale = (1 - 0.5 ** self.precision) * 2
+        # noinspection PyTypeChecker
+        magnitude_p = self.magnitude[0] * dequantization_scale
+        # noinspection PyTypeChecker
+        magnitude_n = self.magnitude[1] * dequantization_scale
+
         # Around is necessary because of floating point errors.
         # Decimals=4 because 1E^-4 is in the order of 1/2^8, the maximum precision of the OPU input
-        # noinspection PyTypeChecker
-        if np.around(+X.max() / (magnitude_p * dequantization_scale), decimals=4) > 1 or \
-                (magnitude_n > 0 and np.around(-X.min() / (magnitude_n * dequantization_scale), decimals=4) > 1):
+        if np.around(+X.max() / magnitude_p, decimals=4) > 1 or \
+                (magnitude_n > 0 and np.around(-X.min() / magnitude_n, decimals=4) > 1):
             warnings.warn(f"Input has values outside the range of supported values.")
 
         # Takes inputs in the range 0-1 ands splits into n (=precision) bitplanes
@@ -722,7 +724,6 @@ class SeparatedBitPlanEncoder(BaseTransformer):
         must be passed to the SeparatedBitPlanDecoder init.
         """
         return {'precision': self.precision, 'magnitude_p': self.magnitude[0], 'magnitude_n': self.magnitude[1]}
-
 
 class SeparatedBitPlanDecoder(BaseTransformer):
     def __init__(self, precision, magnitude_p=1, magnitude_n=0, decoding_decay=0.5):
@@ -779,3 +780,23 @@ if __name__ == "__main__":
     decoder = SeparatedBitPlanDecoder(**encoder.get_params())
     X_dec = decoder.transform(X_enc)
 
+if __name__ == "__main__":
+    X = np.random.randn(1, 6)
+    encoder = SeparatedBitPlanEncoder(precision=4)
+
+    encoder.fit(X)
+
+    X_enc = encoder.transform(X)
+
+    decoder = SeparatedBitPlanDecoder(**encoder.get_params())
+    X_dec = decoder.transform(X_enc)
+
+    X_enc_2 = encoder.transform(X_dec)
+    X_dec_2 = decoder.transform(X_enc_2)
+    X_dec_2_bis = SeparatedBitPlanDecoder(**encoder.get_params()).transform(X_enc_2)
+
+    print(f"Difference between decoded and orig: ", np.linalg.norm(X - X_dec) / np.linalg.norm(X))
+    print(f"Difference between encoded 1 and encoded 2: ", np.linalg.norm(X_enc - X_enc_2) / np.linalg.norm(X_enc))
+    print(f"Difference between decoded 2 and orig: ", np.linalg.norm(X - X_dec_2) / np.linalg.norm(X))
+    print(f"Difference between decoded 2 bis and orig: ", np.linalg.norm(X - X_dec_2_bis) / np.linalg.norm(X))
+    print(f"Difference between decoded 2 bis and decoded 2: ", np.linalg.norm(X_dec_2 - X_dec_2_bis) / np.linalg.norm(X_dec_2))
